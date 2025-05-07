@@ -85,7 +85,7 @@ def skyline_mask_matrices_desi(
     for iz in range(num_parts):
         lmin = ABSORBER_IGM["LYA"] * (1 + z_parts[iz])
         lmax = ABSORBER_IGM["LYA"] * (1 + z_parts[iz + 1])
-        # - the following selection is identical to compute_pk1d.split_forest_in_z_parts:
+        # - the following selection is identical to fourier_transform.split_forest_in_z_parts:
         wave = ref_wavegrid[(ref_wavegrid >= lmin) & (ref_wavegrid < lmax)]
         npts = len(wave)
         skymask = np.ones(npts)

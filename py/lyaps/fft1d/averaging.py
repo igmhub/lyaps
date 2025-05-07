@@ -1,4 +1,4 @@
-"""Module defining a set of functions to postprocess files produced by compute_pk1d.py.
+"""Module defining a set of functions to postprocess files produced by fourier_transform.py.
 
 This module provides 3 main functions:
     - read_pk1d:
@@ -1482,7 +1482,7 @@ def compute_cov_not_vectorized(
     return covariance_array
 
 
-def run_postproc_pk1d(
+def run_averaging(
     data_dir,
     output_file,
     zbin_edges,
