@@ -9,8 +9,12 @@ from multiprocessing import Pool
 
 import fitsio
 import numpy as np
+
+# CR - for now the io is done with picca, this should be changed to lyaps
+from picca.data import Delta
+
 from lyaps import constants
-from lyaps.fft1d.fourier_transform import (
+from lyaps.fourier import (
     Pk1D,
     check_linear_binning,
     compute_correction_reso,
@@ -23,9 +27,6 @@ from lyaps.fft1d.fourier_transform import (
     split_forest_in_z_parts,
 )
 from lyaps.utils import userprint
-
-# CR - for now the io is done with picca, this should be changed to lyaps
-from picca.data import Delta
 
 # loop over input files
 num_data = 0

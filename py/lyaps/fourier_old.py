@@ -13,9 +13,10 @@ See the respective docstrings for more details
 """
 
 import numpy as np
+from numpy.fft import rfft, rfftfreq
+
 from lyaps.constants import ABSORBER_IGM, SPEED_LIGHT
 from lyaps.utils import userprint
-from numpy.fft import rfft, rfftfreq
 
 
 def split_forest(
@@ -275,98 +276,6 @@ def rebin_diff_noise(pixel_step, lambda_or_log_lambda, exposures_diff):
     return noise
 
 
-def fill_masked_pixels(
-    delta_lambda_or_log_lambda,
-    lambda_or_log_lambda,
-    delta,
-    exposures_diff,
-    ivar,
-    no_apply_filling,
-):
-    """Fills the masked pixels with zeros
-
-    Note that inputs can be either linear or log-lambda spaced units (but
-    delta_lambda_or_log_lambda and lambda_or_log_lambda need the same unit);
-    spectrum needs to be uniformly binned in that unit
-
-    Arguments
-    ---------
-    delta_lambda_or_log_lambda: float
-    Variation of the logarithm of the wavelength between two pixels
-
-    lambda_or_log_lambda: array of float
-    Array containing the logarithm of the wavelengths (in Angs)
-
-    delta: array of float
-    Mean transmission fluctuation (delta field)
-
-    exposures_diff: array of float
-    Semidifference between two customized coadded spectra obtained from
-    weighted averages of the even-number exposures, for the first
-    spectrum, and of the odd-number exposures, for the second one
-
-    ivar: array of float
-    Array containing the inverse variance
-
-    no_apply_filling: boolean
-    If True, then return the original arrays
-
-    Return
-    ------
-    lambda_or_log_lambda_new: array of float
-    Array containing the wavelength (in Angs) or its logarithm depending on the
-    wavelength solution used
-
-    delta_new: array of float
-    Mean transmission fluctuation (delta field)
-
-    exposures_diff_new: array of float
-    Semidifference between two customized coadded spectra obtained from
-    weighted averages of the even-number exposures, for the first spectrum,
-    and of the odd-number exposures, for the second one
-
-    ivar_new: array of float
-    Array containing the inverse variance
-
-    num_masked_pixels: array of int
-    Number of masked pixels
-    """
-    if no_apply_filling:
-        return lambda_or_log_lambda, delta, exposures_diff, ivar, 0
-
-    lambda_or_log_lambda_index = lambda_or_log_lambda.copy()
-    lambda_or_log_lambda_index -= lambda_or_log_lambda[0]
-    lambda_or_log_lambda_index /= delta_lambda_or_log_lambda
-    lambda_or_log_lambda_index += 0.5
-    lambda_or_log_lambda_index = np.array(lambda_or_log_lambda_index, dtype=int)
-    index_all = range(lambda_or_log_lambda_index[-1] + 1)
-    index_ok = np.in1d(index_all, lambda_or_log_lambda_index)
-
-    delta_new = np.zeros(len(index_all))
-    delta_new[index_ok] = delta
-
-    lambda_or_log_lambda_new = np.array(index_all, dtype=float)
-    lambda_or_log_lambda_new *= delta_lambda_or_log_lambda
-    lambda_or_log_lambda_new += lambda_or_log_lambda[0]
-
-    exposures_diff_new = np.zeros(len(index_all))
-    if exposures_diff is not None:
-        exposures_diff_new[index_ok] = exposures_diff
-
-    ivar_new = np.zeros(len(index_all), dtype=float)
-    ivar_new[index_ok] = ivar
-
-    num_masked_pixels = len(index_all) - len(lambda_or_log_lambda_index)
-
-    return (
-        lambda_or_log_lambda_new,
-        delta_new,
-        exposures_diff_new,
-        ivar_new,
-        num_masked_pixels,
-    )
-
-
 def compute_pk_raw(delta_lambda_or_log_lambda, delta, linear_binning=False):
     """Compute the raw power spectrum
 
@@ -528,132 +437,6 @@ def compute_pk_noise(
     )
 
     return pk_noise, pk_diff, fft_delta_noise, fft_delta_diff
-
-
-def compute_correction_reso(delta_pixel, mean_reso, k):
-    """Computes the resolution correction
-
-    Arguments
-    ---------
-    delta_pixel: float
-    Variation of the logarithm of the wavelength between two pixels
-    (in km/s or Ang depending on the units of k submitted)
-
-    mean_reso: float
-    Mean resolution of the forest
-
-    k: array of float
-    Fourier modes
-
-    Return
-    ------
-    correction: array of float
-    The resolution correction
-    """
-    num_bins_fft = len(k)
-    correction = np.ones(num_bins_fft)
-
-    pixelization_factor = np.sinc(k * delta_pixel / (2 * np.pi)) ** 2
-
-    correction *= np.exp(-((k * mean_reso) ** 2))
-    correction *= pixelization_factor
-    return correction
-
-
-def compute_correction_reso_matrix(
-    reso_matrix, k, delta_pixel, num_pixel, pixelization_correction=False
-):
-    """Computes the resolution correction based on the resolution matrix using linear binning
-
-    Arguments
-    ---------
-    delta_pixel: float
-    Variation of the logarithm of the wavelength between two pixels
-    (in km/s or Ang depending on the units of k submitted)
-
-    num_pixel: int
-    Length  of the spectrum in pixels
-
-    mean_reso: float
-    Mean resolution of the forest
-
-    k: array of float
-    Fourier modes
-
-    Return
-    ------
-    correction: array of float
-    The resolution correction
-    """
-    # this allows either computing the power for each pixel seperately or for the mean
-    reso_matrix = np.atleast_2d(reso_matrix)
-
-    w2_arr = []
-    # first compute the power in the resmat for each pixel, then average
-    for resmat in reso_matrix:
-        r = np.append(resmat, np.zeros(num_pixel - resmat.size))
-        k_resmat, _, w2 = compute_pk_raw(delta_pixel, r, linear_binning=True)
-        try:
-            assert np.all(k_resmat == k)
-        except AssertionError as error:
-            raise AssertionError(
-                "for some reason the resolution matrix correction has "
-                "different k scaling than the pk"
-            ) from error
-        w2 /= w2[0]
-        w2_arr.append(w2)
-
-    w_res2 = np.mean(w2_arr, axis=0)
-
-    # the following assumes that the resolution matrix is storing the actual
-    # resolution convolved with the pixelization kernel along each matrix axis
-    correction = w_res2
-    if pixelization_correction:
-        pixelization_factor = np.sinc(k * delta_pixel / (2 * np.pi)) ** 2
-        correction /= pixelization_factor
-
-    return correction
-
-
-def check_linear_binning(delta):
-    """checks if the wavelength binning is linear or log,
-      this is stable against masking
-
-    Args:
-        delta (Delta): delta class as read with Delta.from_...
-
-    Raises:
-        ValueError: Raised if binning is neither linear nor log,
-        or if delta.log_lambda was actually wavelength
-
-    Returns:
-        linear_binning (bool): boolean telling the binning_type
-        pixel_step (float): size of a wavelength bin in the right unit
-    """
-
-    diff_lambda = np.diff(10**delta.log_lambda)
-    diff_log_lambda = np.diff(delta.log_lambda)
-    q5_lambda, q25_lambda = np.percentile(diff_lambda, [5, 25])
-    q5_log_lambda, q25_log_lambda = np.percentile(diff_log_lambda, [5, 25])
-    if (q25_lambda - q5_lambda) < 1e-6:
-        # we can assume linear binning for this case
-        linear_binning = True
-        pixel_step = np.min(diff_lambda)
-    elif (q25_log_lambda - q5_log_lambda) < 1e-6 and q5_log_lambda < 0.01:
-        # we can assume log_linear binning for this case
-        linear_binning = False
-        pixel_step = np.min(diff_log_lambda)
-    elif q5_log_lambda >= 0.01:
-        raise ValueError(
-            "Could not figure out if linear or log wavelength binning was used,"
-            "probably submitted lambda as log_lambda"
-        )
-    else:
-        raise ValueError(
-            "Could not figure out if linear or log wavelength binning was used"
-        )
-
-    return linear_binning, pixel_step
 
 
 class Pk1D:

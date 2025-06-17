@@ -1,4 +1,4 @@
-lyapsfft1d_fourier.py \
+lyaps_fourier.py \
 --in-dir ./p1d_out/p1d_lya_noisepipeline_linesDESIEDR_catiron_highz_20240305_dlairon_highz_CNN_GP_naim
 cuts_balai/Delta \
 --in-format fits \

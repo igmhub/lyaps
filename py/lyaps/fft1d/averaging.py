@@ -1,4 +1,4 @@
-"""Module defining a set of functions to postprocess files produced by fourier_transform.py.
+"""Module defining a set of functions to postprocess files produced by fourier.py.
 
 This module provides 3 main functions:
     - read_pk1d:
@@ -21,11 +21,12 @@ import fitsio
 import numpy as np
 from astropy.stats import bootstrap
 from astropy.table import Table, vstack
+from scipy.optimize import curve_fit
+from scipy.stats import binned_statistic
+
 from lyaps.constants import ABSORBER_IGM, SPEED_LIGHT
 from lyaps.fft1d.utils import MEANPK_FITRANGE_SNR, fitfunc_variance_pk1d
 from lyaps.utils import userprint
-from scipy.optimize import curve_fit
-from scipy.stats import binned_statistic
 
 
 def read_pk1d(

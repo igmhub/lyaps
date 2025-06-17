@@ -10,7 +10,8 @@ from functools import partial
 
 import fitsio
 import numpy as np
-from lyaps.fft1d.fourier_transform import Pk1D, compute_pk_cross_exposure
+
+from lyaps.fourier import Pk1D, compute_pk_cross_exposure
 from lyaps.utils import userprint
 
 
