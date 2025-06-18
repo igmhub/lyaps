@@ -8,25 +8,6 @@ def compute_correction_reso(
     mean_reso,
     k,
 ):
-    """Computes the resolution correction
-
-    Arguments
-    ---------
-    delta_pixel: float
-    Variation of the logarithm of the wavelength between two pixels
-    (in km/s or Ang depending on the units of k submitted)
-
-    mean_reso: float
-    Mean resolution of the forest
-
-    k: array of float
-    Fourier modes
-
-    Return
-    ------
-    correction: array of float
-    The resolution correction
-    """
     num_bins_fft = len(k)
     correction = np.ones(num_bins_fft)
 
@@ -45,28 +26,7 @@ def compute_correction_reso_matrix(
     num_pixel,
     pixelization_correction=False,
 ):
-    """Computes the resolution correction based on the resolution matrix using linear binning
 
-    Arguments
-    ---------
-    delta_pixel: float
-    Variation of the logarithm of the wavelength between two pixels
-    (in km/s or Ang depending on the units of k submitted)
-
-    num_pixel: int
-    Length  of the spectrum in pixels
-
-    mean_reso: float
-    Mean resolution of the forest
-
-    k: array of float
-    Fourier modes
-
-    Return
-    ------
-    correction: array of float
-    The resolution correction
-    """
     # this allows either computing the power for each pixel seperately or for the mean
     reso_matrix = np.atleast_2d(reso_matrix)
 
