@@ -3,7 +3,9 @@ import numpy as np
 from scipy.fft import rfft, rfftfreq
 
 from lyaps.constants import SPEED_LIGHT
-from lyaps.delta import Delta, _available_binnings
+from lyaps.deltas import Delta, _available_binnings
+from lyaps.noise import compute_noise_power_spectra
+from lyaps.resolution import compute_resolution_correction
 
 
 class FourierSpaceDelta(Delta):
@@ -24,6 +26,8 @@ class FourierSpaceDelta(Delta):
     def from_real_space_delta(
         cls,
         real_space_delta,
+        number_noise_realization=50,
+        resolution_correction_method="matrix",
     ):
 
         delta_arguments = real_space_delta.__dict__.copy()
@@ -39,13 +43,36 @@ class FourierSpaceDelta(Delta):
             return_wavenumber=True,
         )
 
-        # if delta_arguments.get("ivar") is not None:
-        #     delta_noise = fourier_delta * np.sqrt(delta_arguments["ivar"])
+        if delta_arguments.get("diff") is not None:
+            exposures_diff = real_space_delta.diff
+        else:
+            exposures_diff = None
 
-        # if delta_arguments.get("diff") is not None:
-        #     diff_noise = fourier_delta * np.sqrt(delta_arguments["diff"])
+        fourier_delta_noise, fourier_delta_diff = compute_noise_power_spectra(
+            real_space_delta.wavelength,
+            real_space_delta.ivar,
+            real_space_delta.binning,
+            real_space_delta.pixel_step,
+            exposures_diff=exposures_diff,
+            number_noise_realization=number_noise_realization,
+        )
 
-        return cls(wavenumber=wavenumber, delta=fourier_delta)
+        resolution_correction = compute_resolution_correction(
+            resolution_correction_method,
+            wavenumber,
+            real_space_delta.pixel_step,
+            real_space_delta.binning,
+            resolution_matrix=real_space_delta.resomat,
+            mean_resolution=real_space_delta.metadata["MEANRESO"],
+            pixelization_correction=False,
+        )
+
+        additional_fields = {
+            "delta_noise": fourier_delta_noise,
+            "delta_diff": fourier_delta_diff,
+            "resolution_correction": resolution_correction,
+        }
+        return cls(wavenumber=wavenumber, delta=fourier_delta, **additional_fields)
 
     def plot_delta(
         self,

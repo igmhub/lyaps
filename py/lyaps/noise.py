@@ -1,110 +1,58 @@
+import numpy as np
+
+from lyaps.fourier import transform
 from lyaps.utils import userprint
 
 
-def compute_pk_noise(
-    delta_lambda_or_log_lambda,
-    ivar,
-    exposures_diff,
-    run_noise,
-    num_noise_exposures=10,
-    linear_binning=False,
+def compute_noise_power_spectra(
+    wavelength,
+    inversed_variance,
+    binning,
+    pixel_step,
+    exposures_diff=None,
+    number_noise_realization=50,
 ):
-    """Compute the noise power spectrum
 
-    Two noise power spectrum are computed: one using the pipeline noise and
-    another one using the noise derived from exposures_diff
-
-    Arguments
-    ---------
-    delta_lambda_or_log_lambda: float
-    Variation of the logarithm of the wavelength between two pixels
-
-    ivar: array of float
-    Array containing the inverse variance
-
-    exposures_diff: array of float
-    Semidifference between two customized coadded spectra obtained from
-    weighted averages of the even-number exposures, for the first
-    spectrum, and of the odd-number exposures, for the second one
-
-    run_noise: boolean
-    If False the noise power spectrum using the pipeline noise is not
-    computed and an array filled with zeros is returned instead
-
-    num_noise_exposures: int
-    Number of exposures to average for noise power estimate
-
-    Return
-    ------
-    pk_noise: array of float
-    The noise Power Spectrum using the pipeline noise
-
-    pk_diff: array of float
-    The noise Power Spectrum using the noise derived from exposures_diff
-
-    fft_delta_noise: array of float
-    The Fourier transform of noise pipeline realization
-
-    fft_delta_diff: array of float
-    The Fourier transform of the exposure difference delta
-    """
-    num_pixels = len(ivar)
+    num_pixels = len(wavelength)
     num_bins_fft = num_pixels // 2 + 1
 
-    pk_noise = np.zeros(num_bins_fft)
-    fft_delta_noise = np.zeros(num_bins_fft)
-    error = np.zeros(num_pixels)
-    w = ivar > 0
-    error[w] = 1.0 / np.sqrt(ivar[w])
+    average_delta_noise = np.zeros(num_bins_fft)
+    pipeline_error = np.zeros(num_pixels)
+    mask = inversed_variance > 0
+    pipeline_error[mask] = 1.0 / np.sqrt(inversed_variance[mask])
 
-    if run_noise:
-        for _ in range(num_noise_exposures):
-            delta_exp = np.zeros(num_pixels)
-            delta_exp[w] = np.random.normal(0.0, error[w])
-            _, fft_delta_noise, pk_exp = compute_pk_raw(
-                delta_lambda_or_log_lambda, delta_exp, linear_binning=linear_binning
-            )
-            pk_noise += pk_exp
+    for _ in range(number_noise_realization):
+        delta_noise = np.zeros(num_pixels)
+        delta_noise[mask] = np.random.normal(0.0, pipeline_error[mask])
+        _, fourier_delta_noise = transform(
+            delta_noise,
+            binning,
+            pixel_step,
+            return_wavenumber=False,
+        )
 
-        pk_noise /= float(num_noise_exposures)
+        average_delta_noise += fourier_delta_noise
+        average_delta_noise /= float(number_noise_realization)
 
-    _, fft_delta_diff, pk_diff = compute_pk_raw(
-        delta_lambda_or_log_lambda, exposures_diff, linear_binning=linear_binning
-    )
+    if exposures_diff is not None:
+        _, fourier_delta_diff = transform(
+            exposures_diff,
+            binning,
+            pixel_step,
+            return_wavenumber=False,
+        )
+    else:
+        fourier_delta_diff = None
 
-    return pk_noise, pk_diff, fft_delta_noise, fft_delta_diff
+    return average_delta_noise, fourier_delta_diff
 
 
-def rebin_diff_noise(pixel_step, lambda_or_log_lambda, exposures_diff):
-    """Rebin the semidifference between two customized coadded spectra to
-    construct the noise array
+def rebin_diff_noise(
+    wavelength,
+    exposures_diff,
+    pixel_step,
+):
 
-    Note that inputs can be either linear or log-lambda spaced units (but
-    pixel_step and lambda_or_log_lambda need the same unit)
-
-    The rebinning is done by combining 3 of the original pixels into analysis
-    pixels.
-
-    Arguments
-    ---------
-    pixel_step: float
-    Variation of the logarithm of the wavelength between two pixels
-    for linear binnings this would need to be the wavelength difference
-
-    lambda_or_log_lambda: array of float
-    Array containing the logarithm of the wavelengths (in Angs)
-    for linear binnings this would need to be just wavelength
-
-    exposures_diff: array of float
-    Semidifference between two customized coadded spectra obtained from
-    weighted averages of the even-number exposures, for the first
-    spectrum, and of the odd-number exposures, for the second one
-
-    Return
-    ------
-    noise: array of float
-    The noise array
-    """
     rebin = 3
     if exposures_diff.size < rebin:
         userprint("Warning: exposures_diff.size too small for rebin")
@@ -113,9 +61,7 @@ def rebin_diff_noise(pixel_step, lambda_or_log_lambda, exposures_diff):
 
     # rebin not mixing pixels separated by masks
     bins = np.floor(
-        (lambda_or_log_lambda - lambda_or_log_lambda.min())
-        / rebin_delta_lambda_or_log_lambda
-        + 0.5
+        (wavelength - wavelength.min()) / rebin_delta_lambda_or_log_lambda + 0.5
     ).astype(int)
 
     rebin_exposure_diff = np.bincount(bins.astype(int), weights=exposures_diff)
@@ -126,13 +72,13 @@ def rebin_diff_noise(pixel_step, lambda_or_log_lambda, exposures_diff):
     rebin_exposure_diff = rebin_exposure_diff[w] / np.sqrt(rebin_counts[w])
 
     # now merge the rebinned array into a noise array
-    noise = np.zeros(exposures_diff.size)
+    rebin_exposure_diff_out = np.zeros(exposures_diff.size)
     for index in range(len(exposures_diff) // len(rebin_exposure_diff) + 1):
         length_max = min(len(exposures_diff), (index + 1) * len(rebin_exposure_diff))
-        noise[index * len(rebin_exposure_diff) : length_max] = rebin_exposure_diff[
-            : (length_max - index * len(rebin_exposure_diff))
-        ]
+        rebin_exposure_diff_out[index * len(rebin_exposure_diff) : length_max] = (
+            rebin_exposure_diff[: (length_max - index * len(rebin_exposure_diff))]
+        )
         # shuffle the array before the next iteration
         np.random.shuffle(rebin_exposure_diff)
 
-    return noise
+    return rebin_exposure_diff_out
