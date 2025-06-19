@@ -1,8 +1,7 @@
 import fitsio
 
-from lyaps.deltas import FourierSpaceDelta, RealSpaceDelta
-
-# CR - need to decide if the IO is done at the file level or at the object level.
+from lyaps.deltas import RealSpaceDelta
+from lyaps.fourier import FourierSpaceDelta
 
 
 def read_real_space_delta_from_file(delta_file):

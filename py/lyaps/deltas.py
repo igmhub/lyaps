@@ -1,13 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from lyaps.constants import ABSORBER_IGM
+from lyaps.constants import ABSORBER_IGM, DESI_OBSERVED_WAVELENGTH_GRID
 
 _available_binnings = ["linear", "log10"]
-
-
-# Add fucntion for cutting lambda min and max in the forest (observed wavelength)
-# Add function for removing a forest with a too small number of pixels
+_available_wavelength_grid_zero_padding = ["desi"]
 
 
 class Delta(object):
@@ -142,7 +139,10 @@ class RealSpaceDelta(Delta):
         else:
             raise ValueError("No wavelength or log_wavelength attribute found")
 
-    def set_mean_redshift(self, absorber_igm="LYA"):
+    def set_mean_redshift(
+        self,
+        absorber_igm="LYA",
+    ):
         lambda_abs_igm = ABSORBER_IGM[absorber_igm]
         if self.binning == "linear":
             self.mean_redshift = np.mean(self.wavelength) / lambda_abs_igm - 1.0
@@ -162,7 +162,9 @@ class RealSpaceDelta(Delta):
             mask = self.wavelength >= wavelength_min
             self.wavelength = self.wavelength[mask]
             self.delta = self.delta[mask]
-            for key, array in self.return_editable_arrays_dict().items():
+            for key, array in self.return_editable_arrays_dict(
+                keys_removed=["wavelength", "log_wavelength"],
+            ).items():
                 setattr(self, key, array[mask])
             for key, matrix in self.return_editable_matrices_dict().items():
                 setattr(self, key, matrix[mask, :])
@@ -171,7 +173,9 @@ class RealSpaceDelta(Delta):
             mask = self.wavelength <= wavelength_max
             self.wavelength = self.wavelength[mask]
             self.delta = self.delta[mask]
-            for key, array in self.return_editable_arrays_dict().items():
+            for key, array in self.return_editable_arrays_dict(
+                keys_removed=["wavelength", "log_wavelength"],
+            ).items():
                 setattr(self, key, array[mask])
             for key, matrix in self.return_editable_matrices_dict().items():
                 setattr(self, key, matrix[mask, :])
@@ -219,6 +223,8 @@ class RealSpaceDelta(Delta):
             legend.append("Weight")
         ax.legend(legend)
         ax.set_xlabel("Wavelength")
+
+        return ax
 
 
 def get_wavelenght_binning(
@@ -404,6 +410,64 @@ def zero_padding(
     return padded_wavelength, padded_delta, padded_other_arrays, padded_other_matrices
 
 
+def create_deltas_from_zero_padding(
+    delta_object,
+    wavelength_grid_name,
+    redshift_grid,
+    factor_padding=2.0,
+    absorber_igm="LYA",
+):
+    if factor_padding is None:
+        raise ValueError(
+            "'factor padding' must be provided when zeropad_forest_flag is True."
+        )
+    if wavelength_grid_name is None:
+        raise ValueError(
+            "'telescop wavelength grid' name must be provided when zeropad_forest_flag is True."
+        )
+
+    total_wavelength_grid = load_total_wavelength_grid(wavelength_grid_name)
+    wavelength_grid_min = ABSORBER_IGM[absorber_igm] * (1 + redshift_grid[:-1])
+    wavelength_grid_max = ABSORBER_IGM[absorber_igm] * (1 + redshift_grid[1:])
+
+    delta_padded_list = []
+    for wavelength_chunk_min, wavelength_chunk_max in zip(
+        wavelength_grid_min, wavelength_grid_max
+    ):
+
+        if (
+            delta_object.wavelength[-1] < wavelength_chunk_min
+            or delta_object.wavelength[0] > wavelength_chunk_max
+        ):
+            continue
+
+        mask = (total_wavelength_grid > wavelength_chunk_min) & (
+            total_wavelength_grid < wavelength_chunk_max
+        )
+        if np.sum(mask) == 0:
+            continue
+        wavelength_grid = total_wavelength_grid[mask]
+        delta_padded = RealSpaceDelta.from_delta_zero_padding(
+            delta_object,
+            wavelength_grid,
+            factor_padding,
+        )
+        delta_padded_list.append(delta_padded)
+
+    return delta_padded_list
+
+
+def load_total_wavelength_grid(wavelength_grid_name):
+    if wavelength_grid_name.lower() == "desi":
+        total_wavelength_grid = DESI_OBSERVED_WAVELENGTH_GRID
+    else:
+        raise ValueError(
+            f"Unknown telescope name '{wavelength_grid_name}'. "
+            f"Currently only {_available_wavelength_grid_zero_padding} is supported."
+        )
+    return total_wavelength_grid
+
+
 def split_forest(
     delta_array,
     wavelength,
@@ -457,15 +521,14 @@ def split_forest(
 def split_forest_in_redshift_parts(
     delta_array,
     wavelength,
-    z_grid,
+    redshift_grid,
     other_arrays=None,
     other_matrices=None,
     absorber_igm="LYA",
-    min_num_pixels=None,
 ):
 
-    wavelength_grid_min = ABSORBER_IGM[absorber_igm] * (1 + z_grid[:-1])
-    wavelength_grid_max = ABSORBER_IGM[absorber_igm] * (1 + z_grid[1:])
+    wavelength_grid_min = ABSORBER_IGM[absorber_igm] * (1 + redshift_grid[:-1])
+    wavelength_grid_max = ABSORBER_IGM[absorber_igm] * (1 + redshift_grid[1:])
 
     number_parts = 0
     delta_array_chunks = []
@@ -479,8 +542,6 @@ def split_forest_in_redshift_parts(
         mask = (wavelength >= wavelength_chunk_min) & (
             wavelength < wavelength_chunk_max
         )
-        if min_num_pixels is not None and np.sum(mask) < min_num_pixels:
-            continue
         if (
             np.sum(wavelength <= wavelength_chunk_min) == 0
             or np.sum(wavelength >= wavelength_chunk_max) == 0
@@ -512,15 +573,20 @@ def split_forest_in_redshift_parts(
 
 def create_deltas_from_split(
     delta_object,
-    cut_in_redshift=False,
+    split_forest_redshift=False,
     number_parts=None,
-    z_grid=None,
+    redshift_grid=None,
+    absorber_igm="LYA",
 ):
-    if not cut_in_redshift and number_parts is None:
-        raise ValueError("If cut_in_redshift is False, number_parts must be provided.")
-    if cut_in_redshift and z_grid is None:
-        raise ValueError("z_grid must be provided when cut_in_redshift is True.")
-    if cut_in_redshift:
+    if not split_forest_redshift and number_parts is None:
+        raise ValueError(
+            "If 'split in redshift' is False, 'number parts' must be provided."
+        )
+    if split_forest_redshift and redshift_grid is None:
+        raise ValueError(
+            "redshift_grid must be provided when 'split in redshift' is True."
+        )
+    if split_forest_redshift:
 
         (
             wavelength_chunks,
@@ -531,11 +597,12 @@ def create_deltas_from_split(
         ) = split_forest_in_redshift_parts(
             delta_object.delta,
             delta_object.wavelength,
-            z_grid,
+            redshift_grid,
             other_arrays=delta_object.return_editable_arrays_dict(
                 keys_removed=["wavelength", "log_wavelength"],
             ),
             other_matrices=delta_object.return_editable_matrices_dict(),
+            absorber_igm=absorber_igm,
         )
     else:
         (
@@ -567,3 +634,86 @@ def create_deltas_from_split(
         splitted_delta_array.append(splitted_delta)
 
     return splitted_delta_array
+
+
+def treat_one_delta_object(
+    delta_object,
+    general_config,
+    delta_config,
+):
+
+    absorber_igm = general_config.get("absorber igm", "LYA")
+
+    wavelength_min = delta_config.getfloat("wavelength observed minimum")
+    wavelength_max = delta_config.getfloat("wavelength observed maximum")
+
+    delta_object.cut_wavelength(
+        wavelength_min=wavelength_min,
+        wavelength_max=wavelength_max,
+    )
+    if delta_object.wavelength.size == 0:
+        return []
+
+    fill_masked_pixels_flag = delta_config.getboolean("fill masked pixels")
+
+    if fill_masked_pixels_flag:
+        delta_object.fill_masked_pixels()
+
+    split_forest_flag = delta_config.getboolean("split forest")
+    zeropad_forest_flag = delta_config.getboolean("zero padding")
+
+    if split_forest_flag and zeropad_forest_flag:
+        raise ValueError(
+            "Cannot split and zeropad the forest at the same time. "
+            "Please choose one of the two options."
+        )
+    if split_forest_flag:
+        split_forest_redshift_flag = delta_config.getboolean("split in redshift")
+        number_parts = delta_config.getint("number parts")
+        if split_forest_redshift_flag:
+            redshift_min_split = delta_config.getfloat("redshift min split")
+            redshift_max_split = delta_config.getfloat("redshift max split")
+            redshift_step_split = delta_config.getfloat("redshift step split")
+            redshift_grid_split = np.arange(
+                redshift_min_split,
+                redshift_max_split,
+                redshift_step_split,
+            )
+        else:
+            redshift_grid_split = None
+
+        delta_list = create_deltas_from_split(
+            delta_object,
+            split_forest_redshift=split_forest_redshift_flag,
+            number_parts=number_parts,
+            redshift_grid=redshift_grid_split,
+            absorber_igm=absorber_igm,
+        )
+
+    elif zeropad_forest_flag:
+        factor_padding = delta_config.getfloat("factor padding")
+        wavelength_grid_name = delta_config.get("telescop wavelength grid")
+        redshift_min_padding = delta_config.getfloat("redshift min padding")
+        redshift_max_padding = delta_config.getfloat("redshift max padding")
+        redshift_step_padding = delta_config.getfloat("redshift step padding")
+        redshift_grid_pad = np.arange(
+            redshift_min_padding,
+            redshift_max_padding,
+            redshift_step_padding,
+        )
+
+        delta_list = create_deltas_from_zero_padding(
+            delta_object,
+            wavelength_grid_name,
+            redshift_grid_pad,
+            factor_padding=factor_padding,
+            absorber_igm=absorber_igm,
+        )
+
+    else:
+        delta_list = [delta_object]
+
+    for delta in delta_list:
+        delta.set_mean_redshift(absorber_igm=absorber_igm)
+
+    return delta_list

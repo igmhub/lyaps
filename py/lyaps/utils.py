@@ -1,10 +1,3 @@
-"""This module provides general functions.
-
-These are:
-    - userprint
-See the respective docstrings for more details
-"""
-
 import sys
 
 

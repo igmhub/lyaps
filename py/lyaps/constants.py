@@ -1,12 +1,7 @@
-"""This module defines some constants that are used throughout the package.
-
-It includes the class Cosmo, used to store the fiducial cosmology
-"""
-
 import numpy as np
-from scipy.constants import speed_of_light as speed_light
+from scipy.constants import speed_of_light
 
-SPEED_LIGHT = speed_light / 1000.0  # [km/s]
+SPEED_LIGHT = speed_of_light / 1000.0  # [km/s]
 
 ### Absorber names and wavelengths [Angstrom]
 ABSORBER_IGM = {
@@ -79,3 +74,6 @@ ABSORBER_IGM = {
     "LY9": 920.9631,
     "LY10": 919.3514,
 }
+
+
+DESI_OBSERVED_WAVELENGTH_GRID = np.arange(3600.0, 9824.0, 0.8)

@@ -1,3 +1,4 @@
 """Init file of the lyaps package."""
 
-from . import constants, deltas, fft1d, fftcross, fourier, noise, resolution, utils
+from . import fft1d, fftcross
+from ._version import __version__
