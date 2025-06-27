@@ -10,40 +10,92 @@ class ConfigError(Exception):
 
 
 accepted_general_options = [
+    "in dir",
     "out dir",
     "overwrite",
+    "string search",
+    "reading mode",
+    "absorber igm",
     "log",
     "logging level console",
     "logging level file",
     "num processors",
+    "grouping output method",
 ]
 
 mandatory_general_options = [
+    "in dir",
     "out dir",
     "overwrite",
 ]
 
-accepted_delta_treatment_options = [
-    "num corrections",
+accepted_delta_options = [
+    "fill masked pixels",
+    "split forest",
+    "zero padding",
+    "split in redshift",
+    "wavelength weight definition",
+    "wavelength observed minimum",
+    "wavelength observed maximum",
+    "number parts",
+    "redshift min split",
+    "redshift max split",
+    "redshift step split",
+    "factor padding",
+    "telescop wavelength grid",
+    "redshift min padding",
+    "redshift max padding",
+    "redshift step padding",
+    "minimal chunks size",
+    "maximal masked pixels",
+    "minimum snr",
+    "maximal mean resolution",
 ]
+
+mandatory_delta_options = [
+    "fill masked pixels",
+    "split forest",
+    "zero padding",
+    "split in redshift",
+]
+
 accepted_fourier_options = [
-    "num corrections",
+    "resolution correction method",
+    "pixelization correction",
+    "number noise realization",
+    "white noise assumption",
+    "rebin diff noise",
 ]
+
+mandatory_fourier_options = []
+
 
 default_config = {
     "general": {
-        "overwrite": False,
+        "string search": "delta*.fits*",
+        "absorber igm": "LYA",
+        "reading mode": "individual",
         "log": "run.log",
-        "logging level console": "PROGRESS",
-        "logging level file": "PROGRESS",
-        "num processors": 0,
+        "logging level console": "DEBUG",
+        "logging level file": "DEBUG",
+        "num processors": 1,
     },
     "delta": {
-        "overwrite": False,
-        "num processors": 0,
+        "redshift min split": 2.1,
+        "redshift max split": 3.2,
+        "redshift step split": 0.2,
+        "factor padding": 2,
+        "telescop wavelength grid": "desi",
+        "redshift min padding": 2.1,
+        "redshift max padding": 3.2,
+        "redshift step padding": 0.2,
     },
     "fourier": {
-        "version": 0,
+        "resolution correction method": "matrix",
+        "pixelization correction": False,
+        "number noise realization": 200,
+        "white noise assumption": True,
+        "rebin diff noise": False,
     },
 }
 
@@ -89,6 +141,24 @@ def parse_string(input):
         return str(input)
 
 
+def parse_param(input):
+    if input == "None":
+        return None
+    else:
+        try:
+            return int(input)
+        except:
+            try:
+                return float(input)
+            except:
+                if input.lower() == "true":
+                    return True
+                elif input.lower() == "false":
+                    return False
+                else:
+                    return str(input)
+
+
 class Config(object):
 
     def __init__(self, filename):
@@ -99,21 +169,31 @@ class Config(object):
                 "str": parse_string,
                 "int": parse_int,
                 "float": parse_float,
+                "param": parse_param,
             },
         )
         self.config.optionxform = lambda option: option
         self.config.read_dict(default_config)
-        if os.path.isfile(filename):
-            self.config.read(filename)
+
+        if type(filename) is dict:
+            self.config.read_dict(filename)
+        elif type(filename) is str:
+            if os.path.isfile(filename):
+                self.config.read(filename)
+            else:
+                raise ConfigError(f"Config file not found: {filename}")
         else:
-            raise ConfigError(f"Config file not found: {filename}")
+            raise ConfigError(
+                "Config file should be a dictionary or a string with the "
+                "path to the configuration file."
+            )
 
         self.__parse_environ_variables()
         self.__format_section("general")
         self.__format_section("delta")
         self.__format_section("fourier")
-        self.initialize_folders()
         self.__setup_io()
+        self.__initialize_folders()
         self.__setup_logging()
 
     def __format_section(
@@ -152,22 +232,16 @@ class Config(object):
                         value[:pos], os.getenv(value[1:pos])
                     )
 
-    def initialize_folders(self):
-        """Initialize output folders
+    def __initialize_folders(self):
 
-        Raise
-        -----
-        ConfigError if the output path was already used and the
-        overwrite is not selected
-        """
         if not os.path.exists(f"{self.out_dir}/.config.ini"):
             os.makedirs(self.out_dir, exist_ok=True)
-            os.makedirs(self.out_dir + "Delta/", exist_ok=True)
-            os.makedirs(self.out_dir + "Log/", exist_ok=True)
+            os.makedirs(os.path.join(self.out_dir, "FourierDelta"), exist_ok=True)
+            os.makedirs(os.path.join(self.out_dir, "Log"), exist_ok=True)
             self.write_config()
         elif self.overwrite:
-            os.makedirs(self.out_dir + "Delta/", exist_ok=True)
-            os.makedirs(self.out_dir + "Log/", exist_ok=True)
+            os.makedirs(os.path.join(self.out_dir, "FourierDelta"), exist_ok=True)
+            os.makedirs(os.path.join(self.out_dir, "Log"), exist_ok=True)
             self.write_config()
         else:
             raise ConfigError(
@@ -179,24 +253,29 @@ class Config(object):
             )
 
     def __setup_io(self):
-        self.in_dir = self.config["general"].get("in dir")
-        self.out_dir = self.config["general"].get("out dir")
+        self.in_dir = self.config["general"].getstr("in dir")
+        self.out_dir = self.config["general"].getstr("out dir")
+        self.overwrite = self.config["general"].getboolean("overwrite")
 
     def __setup_logging(self):
 
-        if "/" in self.config["general"].get("log"):
+        if "/" in self.config["general"].getstr("log"):
             raise ConfigError(
                 "Variable 'log' in section [general] should not incude folders. "
                 f"Found: {self.log}"
             )
 
-        logging_level_file = self.config["general"].get("logging level file").upper()
+        logging_level_file = self.config["general"].getstr("logging level file").upper()
 
         logging_level_console = (
-            self.config["general"].get("logging level console").upper()
+            self.config["general"].getstr("logging level console").upper()
         )
 
-        logging_file_name = self.out_dir + "Log/" + self.config["general"].get("log")
+        logging_file_name = os.path.join(
+            self.out_dir,
+            "Log",
+            self.config["general"].getstr("log"),
+        )
 
         log = logging.getLogger("log")
         filehandler = logging.FileHandler(
@@ -231,3 +310,11 @@ class Config(object):
             os.rename(outname, newname)
         with open(outname, "w", encoding="utf-8") as config_file:
             self.config.write(config_file)
+
+    def dict_params(self, section_name):
+        accepted_options = eval(f"accepted_{section_name}_options")
+        dict_param = {}
+        for key in accepted_options:
+            param = self.config[section_name].getparam(key)
+            dict_param[key] = param
+        return dict_param

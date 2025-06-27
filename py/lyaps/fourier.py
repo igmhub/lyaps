@@ -6,8 +6,23 @@ from lyaps.constants import SPEED_LIGHT
 from lyaps.deltas import Delta, _available_binnings
 from lyaps.utils import userprint
 
-_available_noise_estimators = ["pipeline", "diff"]
-_available_resolution_correction = ["mean", "matrix"]
+_available_noise_estimators = [
+    "pipeline",
+    "diff",
+]
+_available_resolution_correction = [
+    "mean",
+    "matrix",
+]
+
+_arguments_delta_to_report = [
+    "mean_redshift",
+]
+
+_available_grouping_methods = {
+    "file",
+    "redshift",
+}
 
 
 class FourierSpaceDelta(Delta):
@@ -28,6 +43,7 @@ class FourierSpaceDelta(Delta):
     def from_real_space_delta(
         cls,
         real_space_delta,
+        chunk_id=None,
         number_noise_realization=50,
         white_noise_asumption=False,
         rebin_diff_noise=False,
@@ -40,6 +56,7 @@ class FourierSpaceDelta(Delta):
         delta_arguments.pop("log_wavelength", None)
         delta_arguments.pop("binning", None)
         delta_arguments.pop("pixel_step", None)
+        delta_arguments.pop("number_masked_pixels", None)
 
         wavenumber, fourier_delta = transform(
             real_space_delta.delta,
@@ -48,7 +65,7 @@ class FourierSpaceDelta(Delta):
             return_wavenumber=True,
         )
 
-        if delta_arguments.get("diff") is not None:
+        if "diff" in delta_arguments and delta_arguments["diff"] is not None:
             exposures_diff = real_space_delta.diff
         else:
             exposures_diff = None
@@ -103,24 +120,55 @@ class FourierSpaceDelta(Delta):
             "delta_weight": fourier_weight,
             "power_spectrum_weight": power_spectrum_weigth,
         }
-        return cls(
+
+        metadata = real_space_delta.metadata
+
+        if chunk_id is not None:
+            metadata["CHUNK_ID"] = chunk_id
+
+        fourier_delta_object = cls(
             wavenumber=wavenumber,
             delta=fourier_delta,
+            metadata=metadata,
             **additional_fields,
         )
+
+        for arg in _arguments_delta_to_report:
+            if arg in delta_arguments.keys():
+                setattr(fourier_delta_object, arg, delta_arguments[arg])
+
+        return fourier_delta_object
+
+    def create_hdu(self):
+        other_arrays = self.return_editable_arrays_dict()
+        other_matrices = self.return_editable_matrices_dict()
+
+        hdu = {"DELTA": self.delta}
+        for arg, arr in other_arrays.items():
+            hdu[arg.upper()] = arr
+        for arg, mat in other_matrices.items():
+            hdu[arg.upper()] = mat
+
+        header = self.metadata
+        if hasattr(self, "mean_redshift"):
+            header["MEANZ"] = self.mean_redshift
+
+        return hdu, header
 
     def plot_power_spectrum(
         self,
         ax=None,
+        plot_weight=False,
     ):
 
         if ax is None:
             _, ax = plt.subplots()
         ax.plot(self.wavenumber, self.power_spectrum)
         legend = ["Power Spectrum"]
-        if hasattr(self, "power_spectrum_weight"):
-            ax.plot(self.wavenumber, self.power_spectrum_weight)
-            legend.append("Weight")
+        if plot_weight:
+            if hasattr(self, "power_spectrum_weight"):
+                ax.plot(self.wavenumber, self.power_spectrum_weight)
+                legend.append("Weight")
         ax.legend(legend)
         ax.set_xlabel("Wavenumer")
         return ax
@@ -369,20 +417,54 @@ def compute_resolution_correction(
 
 def fourier_transform_one_delta_object(
     delta_object,
-    fourier_config,
+    fourrier_config_dict,
+    chunk_id=None,
 ):
 
-    number_noise_realization = fourier_config.getint("number noise realization")
-    white_noise_asumption = fourier_config.getboolean("white noise assumption")
-    rebin_diff_noise = fourier_config.getboolean("rebin diff noise")
-    resolution_correction_method = fourier_config.get("resolution correction method")
-    pixelization_correction = fourier_config.getboolean("pixelization correction")
+    number_noise_realization = fourrier_config_dict["number noise realization"]
+    white_noise_asumption = fourrier_config_dict["white noise assumption"]
+    rebin_diff_noise = fourrier_config_dict["rebin diff noise"]
+    resolution_correction_method = fourrier_config_dict["resolution correction method"]
+    pixelization_correction = fourrier_config_dict["pixelization correction"]
 
     return FourierSpaceDelta.from_real_space_delta(
         delta_object,
+        chunk_id=chunk_id,
         number_noise_realization=number_noise_realization,
         white_noise_asumption=white_noise_asumption,
         rebin_diff_noise=rebin_diff_noise,
         resolution_correction_method=resolution_correction_method,
         pixelization_correction=pixelization_correction,
     )
+
+
+def group_fourier_chunks(
+    chunk_list,
+    grouping_method,
+):
+    chunk_list = np.array(chunk_list)
+    list_to_group = []
+    for _, chunk in enumerate(chunk_list):
+        if grouping_method == "file":
+            list_to_group.append(chunk.metadata["FILENAME"])
+
+        elif grouping_method == "redshift":
+            list_to_group.append(chunk.mean_redshift.round(decimals=8))
+        else:
+            raise ValueError(
+                "grouping method not available"
+                f"Please choose between: {_available_grouping_methods}"
+            )
+    list_to_group = np.array(list_to_group)
+    unique_list = np.sort(np.unique(list_to_group))
+
+    grouped_list = []
+    for i, unique_arg in enumerate(unique_list):
+        if grouping_method == "file":
+            arg_out = unique_arg.split(".fits")[0].split("-")[-1]
+        elif grouping_method == "redshift":
+            arg_out = str(i)
+        mask = list_to_group == unique_arg
+        grouped_list.append((arg_out, chunk_list[mask]))
+
+    return grouped_list
