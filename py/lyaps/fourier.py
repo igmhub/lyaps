@@ -374,6 +374,10 @@ def compute_resolution_correction_matrix(
     return resolution_correction
 
 
+# CR - Save the complex averaging ? Maybe not
+# CR - should we average first instead of ffting and then average ? Maybe not
+
+
 def compute_resolution_correction(
     correction_method,
     wavenumber,
@@ -468,3 +472,6 @@ def group_fourier_chunks(
         grouped_list.append((arg_out, chunk_list[mask]))
 
     return grouped_list
+
+
+# CR - group per redshift and per healpix at the same time.
