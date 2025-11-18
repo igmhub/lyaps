@@ -218,23 +218,21 @@ class RealSpaceDelta(Delta):
         wavelength_min=None,
         wavelength_max=None,
     ):
-        if wavelength_min is not None or wavelength_max is not None:
+        if (wavelength_min is None) and (wavelength_max is None):
+            return
+        else:
             other_arrays = self.return_editable_arrays_dict(
                 keys_removed=["wavelength", "log_wavelength"],
             )
             other_matrices = self.return_editable_matrices_dict()
 
-        if wavelength_min is not None:
-            mask = self.wavelength >= wavelength_min
-            self.wavelength = self.wavelength[mask]
-            self.delta = self.delta[mask]
-            for key, array in other_arrays.items():
-                setattr(self, key, array[mask])
-            for key, matrix in other_matrices.items():
-                setattr(self, key, matrix[mask, :])
+            mask = np.full(self.wavelength.shape, True, dtype=bool)
 
-        if wavelength_max is not None:
-            mask = self.wavelength <= wavelength_max
+            if wavelength_min is not None:
+                mask &= self.wavelength >= wavelength_min
+            if wavelength_max is not None:
+                mask &= self.wavelength <= wavelength_max
+
             self.wavelength = self.wavelength[mask]
             self.delta = self.delta[mask]
             for key, array in other_arrays.items():

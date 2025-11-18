@@ -1,13 +1,14 @@
 import itertools
 import multiprocessing as mp
 import os
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import fitsio
 
 from lyaps.deltas import RealSpaceDelta
 
-_available_reading_mode = ["file", "hdu"]
+_available_reading_mode = ["file", "hdu", "hdu_thread"]
 
 
 def read_real_space_delta_from_file(delta_file):
@@ -31,34 +32,34 @@ def read_hdu_data_from_file(filename):
 
 def read_all_real_space_delta_files(
     delta_filenames,
-    reading_mode,
     number_process,
+    reading_mode="file",
 ):
     if reading_mode == "file":
         if number_process == 1:
-            delta_list = []
-            for _, filename in enumerate(delta_filenames):
-                deltas = read_real_space_delta_from_file(filename)
-                delta_list.extend(deltas)
+            delta_list = [
+                read_real_space_delta_from_file(filename)
+                for filename in delta_filenames
+            ]
         else:
             with mp.Pool(number_process) as pool:
-                output_pool = pool.map(
+                delta_list = pool.map(
                     read_real_space_delta_from_file,
                     delta_filenames,
                 )
-                delta_list = list(itertools.chain.from_iterable(output_pool))
+            delta_list = list(itertools.chain.from_iterable(delta_list))
     elif reading_mode == "hdu":
         if number_process == 1:
-            delta_fits_data_list = []
-            for filename in delta_filenames:
-                delta_fits_data_list.extend(read_hdu_data_from_file(filename))
+            delta_fits_data_list = [
+                read_hdu_data_from_file(filename) for filename in delta_filenames
+            ]
         else:
             with mp.Pool(number_process) as pool:
-                output_pool = pool.map(
+                delta_fits_data_list = pool.map(
                     read_hdu_data_from_file,
                     delta_filenames,
                 )
-                delta_fits_data_list = list(itertools.chain.from_iterable(output_pool))
+        delta_fits_data_list = list(itertools.chain.from_iterable(delta_fits_data_list))
 
         if number_process == 1:
             delta_list = [
@@ -70,6 +71,20 @@ def read_all_real_space_delta_files(
                 delta_list = pool.starmap(
                     RealSpaceDelta.from_fitsio_data,
                     delta_fits_data_list,
+                )
+    elif reading_mode == "hdu_thread":
+        delta_hdu_list = [
+            data_unit
+            for filename in delta_filenames
+            for data_unit in fitsio.FITS(filename)[1:]
+        ]
+        if number_process == 1:
+            delta_list = [RealSpaceDelta.from_fitsio(hdu) for hdu in delta_hdu_list]
+        else:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                delta_list = executor.map(
+                    RealSpaceDelta.from_fitsio,
+                    delta_hdu_list,
                 )
     else:
         raise ValueError(
