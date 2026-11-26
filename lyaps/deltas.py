@@ -12,7 +12,7 @@ _available_weight_definition = [
 ]
 
 
-class Delta(object):
+class Delta:
     def __init__(
         self,
         delta=None,
@@ -342,7 +342,7 @@ def fill_masked_pixels(
     wavelength_index += 0.5
     wavelength_index = np.array(wavelength_index, dtype=int)
     index_all = range(wavelength_index[-1] + 1)
-    index_ok = np.in1d(index_all, wavelength_index)
+    index_ok = np.isin(index_all, wavelength_index)
 
     delta_array_filled = np.zeros(len(index_all))
     delta_array_filled[index_ok] = delta_array
@@ -755,13 +755,13 @@ def treat_one_delta_object(
     )
 
     if minimum_snr is not None:
-        if delta.mean_snr is not None and delta.mean_snr < minimum_snr:
+        if delta_object.mean_snr is not None and delta_object.mean_snr < minimum_snr:
             return []
 
     if maximal_mean_resolution is not None:
         if (
-            delta.mean_resolution is not None
-            and delta.mean_resolution > maximal_mean_resolution
+            delta_object.mean_resolution is not None
+            and delta_object.mean_resolution > maximal_mean_resolution
         ):
             return []
 

@@ -37,8 +37,8 @@ def process_all_separated_steps(config_filename):
 
     deltas = read_all_real_space_delta_files(
         delta_filenames,
-        reading_mode,
         number_process,
+        reading_mode=reading_mode,
     )
 
     log.info(f"Read {len(deltas)} delta objects.")
@@ -58,7 +58,7 @@ def process_all_separated_steps(config_filename):
             )
         chunk_list = list(itertools.chain.from_iterable(output_pool))
 
-    log.info(f"Transformed {len(fourier_chunk_list)} chunks to Fourier space.")
+    log.info(f"Transformed {len(chunk_list)} chunks to Fourier space.")
 
     log.info(f"Grouping chunks in Fourier space with method {grouping_method}.")
 
