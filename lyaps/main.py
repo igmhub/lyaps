@@ -20,7 +20,7 @@ def process_all_separated_steps(config_filename):
     reading_mode = config.general_config.getstr("reading mode")
     number_process = config.general_config.getint("num processors")
     grouping_method = config.general_config.getstr("grouping output method")
-    overwrite = config.general_config.getstr("overwrite")
+    overwrite = config.overwrite
 
     general_config_dict = config.dict_params("general")
     delta_config_dict = config.dict_params("delta")

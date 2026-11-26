@@ -47,7 +47,7 @@ def read_all_real_space_delta_files(
                     read_real_space_delta_from_file,
                     delta_filenames,
                 )
-            delta_list = list(itertools.chain.from_iterable(delta_list))
+        delta_list = list(itertools.chain.from_iterable(delta_list))
     elif reading_mode == "hdu":
         if number_process == 1:
             delta_fits_data_list = [
@@ -73,19 +73,26 @@ def read_all_real_space_delta_files(
                     delta_fits_data_list,
                 )
     elif reading_mode == "hdu_thread":
-        delta_hdu_list = [
-            data_unit
-            for filename in delta_filenames
-            for data_unit in fitsio.FITS(filename)[1:]
-        ]
-        if number_process == 1:
-            delta_list = [RealSpaceDelta.from_fitsio(hdu) for hdu in delta_hdu_list]
-        else:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                delta_list = executor.map(
-                    RealSpaceDelta.from_fitsio,
-                    delta_hdu_list,
-                )
+        fits_files = [fitsio.FITS(filename) for filename in delta_filenames]
+        try:
+            delta_hdu_list = [
+                data_unit for fits_file in fits_files for data_unit in fits_file[1:]
+            ]
+            if number_process == 1:
+                delta_list = [
+                    RealSpaceDelta.from_fitsio(hdu) for hdu in delta_hdu_list
+                ]
+            else:
+                with ThreadPoolExecutor(max_workers=number_process) as executor:
+                    delta_list = list(
+                        executor.map(
+                            RealSpaceDelta.from_fitsio,
+                            delta_hdu_list,
+                        )
+                    )
+        finally:
+            for fits_file in fits_files:
+                fits_file.close()
     else:
         raise ValueError(
             f"Unsupported reading mode: {reading_mode}"

@@ -94,8 +94,8 @@ class FourierSpaceDelta(Delta):
             wavenumber,
             real_space_delta.pixel_step,
             real_space_delta.binning,
-            resolution_matrix=real_space_delta.resomat,
-            mean_resolution=real_space_delta.metadata["MEANRESO"],
+            resolution_matrix=getattr(real_space_delta, "resomat", None),
+            mean_resolution=real_space_delta.metadata.get("MEANRESO"),
             pixelization_correction=pixelization_correction,
         )
 
@@ -179,19 +179,22 @@ class FourierSpaceDelta(Delta):
 
     @property
     def power_spectrum_diff(self):
-        if "delta_diff" in self.__dict__:
+        if getattr(self, "delta_diff", None) is not None:
             return self.delta_diff.real**2 + self.delta_diff.imag**2
         else:
             return None
 
     @property
-    def power_spectrum(self, noise_estimator="pipeline"):
+    def power_spectrum(self):
+        return self.compute_power_spectrum(noise_estimator="pipeline")
+
+    def compute_power_spectrum(self, noise_estimator="pipeline"):
         if noise_estimator == "pipeline":
             return (
                 self.power_spectrum_raw - self.power_spectrum_noise
             ) / self.resolution_correction
         elif noise_estimator == "diff":
-            if "delta_diff" in self.__dict__:
+            if getattr(self, "delta_diff", None) is not None:
                 return (
                     self.power_spectrum_raw - self.power_spectrum_diff
                 ) / self.resolution_correction
@@ -247,10 +250,12 @@ def compute_noise_power_spectra(
     white_noise_asumption=False,
 ):
 
+    random_generator = np.random.default_rng()
     num_pixels = len(wavelength)
     num_bins_fft = num_pixels // 2 + 1
 
-    average_delta_noise = np.zeros(num_bins_fft, dtype=np.complex128)
+    # Fourier transform of the last noise realisation (as in picca).
+    fourier_delta_noise = np.zeros(num_bins_fft, dtype=np.complex128)
     average_power_spectrum_noise = np.zeros(num_bins_fft)
     pipeline_error = np.zeros(num_pixels)
     mask = inversed_variance > 0
@@ -258,19 +263,17 @@ def compute_noise_power_spectra(
 
     for _ in range(number_noise_realization):
         delta_noise = np.zeros(num_pixels)
-        delta_noise[mask] = np.random.normal(0.0, pipeline_error[mask])
+        delta_noise[mask] = random_generator.normal(0.0, pipeline_error[mask])
         _, fourier_delta_noise = transform(
             delta_noise,
             binning,
             pixel_step,
             return_wavenumber=False,
         )
-        average_delta_noise += fourier_delta_noise.real**2
         average_power_spectrum_noise += (
             fourier_delta_noise.real**2 + fourier_delta_noise.imag**2
         )
 
-    average_delta_noise /= float(number_noise_realization)
     average_power_spectrum_noise /= float(number_noise_realization)
     if white_noise_asumption:
         white_noise_value = np.mean(average_power_spectrum_noise)
@@ -287,7 +290,7 @@ def compute_noise_power_spectra(
     else:
         fourier_delta_diff = None
 
-    return average_delta_noise, average_power_spectrum_noise, fourier_delta_diff
+    return fourier_delta_noise, average_power_spectrum_noise, fourier_delta_diff
 
 
 def rebin_diff_noise_function(
@@ -296,6 +299,7 @@ def rebin_diff_noise_function(
     pixel_step,
 ):
 
+    random_generator = np.random.default_rng()
     rebin = 3
     if exposures_diff.size < rebin:
         userprint("Warning: exposures_diff.size too small for rebin")
@@ -319,7 +323,7 @@ def rebin_diff_noise_function(
         rebin_exposure_diff_out[index * len(rebin_exposure_diff) : length_max] = (
             rebin_exposure_diff[: (length_max - index * len(rebin_exposure_diff))]
         )
-        np.random.shuffle(rebin_exposure_diff)
+        random_generator.shuffle(rebin_exposure_diff)
 
     return rebin_exposure_diff_out
 
@@ -364,6 +368,9 @@ def compute_resolution_correction_matrix(
             w2 /= w2[0]
             w2_arr.append(w2)
 
+    if len(w2_arr) == 0:
+        # No resolution information (all rows zero): flag the chunk with NaN.
+        return np.full(len(wavenumber), np.nan)
     w_res2 = np.mean(w2_arr, axis=0)
 
     resolution_correction = w_res2
@@ -409,7 +416,7 @@ def compute_resolution_correction(
             resolution_matrix,
             pixel_step,
             binning,
-            pixelization_correction=False,
+            pixelization_correction=pixelization_correction,
         )
     else:
         raise ValueError(
