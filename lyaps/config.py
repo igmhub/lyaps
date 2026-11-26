@@ -101,7 +101,7 @@ default_config = {
 
 
 def check_options(section, accepted_options, section_name):
-    for key in section.keys():
+    for key in section:
         if key not in accepted_options:
             raise ConfigError(
                 f"Unrecognised option in section [{section_name}]."
@@ -112,7 +112,7 @@ def check_options(section, accepted_options, section_name):
 
 def check_mandatory_options(section, mandatory_options, section_name):
     for key in mandatory_options:
-        if key not in section.keys():
+        if key not in section:
             raise ConfigError(
                 f"Missing variable '{key}' in section [{section_name}]."
                 f"Needed options are "
@@ -159,7 +159,7 @@ def parse_param(input):
                     return str(input)
 
 
-class Config(object):
+class Config:
 
     def __init__(self, filename):
 
