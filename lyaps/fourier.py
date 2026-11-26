@@ -71,8 +71,12 @@ class FourierSpaceDelta(Delta):
             exposures_diff = None
 
         if rebin_diff_noise and exposures_diff is not None:
+            if real_space_delta.binning == "log10":
+                wavelength_coordinate = np.log10(real_space_delta.wavelength)
+            else:
+                wavelength_coordinate = real_space_delta.wavelength
             exposures_diff = rebin_diff_noise_function(
-                real_space_delta.wavelength,
+                wavelength_coordinate,
                 exposures_diff,
                 real_space_delta.pixel_step,
             )
@@ -375,7 +379,11 @@ def compute_resolution_correction_matrix(
 
     resolution_correction = w_res2
     if pixelization_correction:
-        pixelization_factor = np.sinc(wavenumber * pixel_step / (2 * np.pi)) ** 2
+        if binning == "log10":
+            pixel_size = pixel_step * SPEED_LIGHT * np.log(10.0)
+        else:
+            pixel_size = pixel_step
+        pixelization_factor = np.sinc(wavenumber * pixel_size / (2 * np.pi)) ** 2
         resolution_correction /= pixelization_factor
 
     return resolution_correction
@@ -400,9 +408,13 @@ def compute_resolution_correction(
                 "The method mean for resolution correction needs mean_resolution"
             )
         else:
+            if binning == "log10":
+                pixel_size = pixel_step * SPEED_LIGHT * np.log(10.0)
+            else:
+                pixel_size = pixel_step
             resolution_correction = compute_resolution_correction_mean(
                 wavenumber,
-                pixel_step,
+                pixel_size,
                 mean_resolution,
                 pixelization_correction=pixelization_correction,
             )
