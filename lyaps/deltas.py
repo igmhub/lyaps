@@ -39,8 +39,8 @@ class Delta:
                 delta = data_table[data]
             elif data.lower() == "lambda":
                 array_to_load["wavelength"] = data_table[data]
-            elif data.lower() == "log_lambda":
-                array_to_load["log_wavelength"] = data_table[data]
+            elif data.lower() in ["loglam", "log_lambda"]:
+                array_to_load["wavelength"] = 10 ** data_table[data]
             else:
                 array_to_load[data.lower()] = data_table[data]
 
@@ -65,8 +65,8 @@ class Delta:
                 delta = data_table[data]
             elif data.lower() == "lambda":
                 array_to_load["wavelength"] = data_table[data]
-            elif data.lower() == "log_lambda":
-                array_to_load["log_wavelength"] = data_table[data]
+            elif data.lower() in ["loglam", "log_lambda"]:
+                array_to_load["wavelength"] = 10 ** data_table[data]
             else:
                 array_to_load[data.lower()] = data_table[data]
         return cls(
@@ -211,7 +211,7 @@ class RealSpaceDelta(Delta):
         if self.binning == "linear":
             self.mean_redshift = np.mean(self.wavelength) / lambda_abs_igm - 1.0
         elif self.binning == "log10":
-            self.mean_redshift = np.mean(10**self.log_wavelength) / lambda_abs_igm - 1.0
+            self.mean_redshift = np.mean(self.wavelength) / lambda_abs_igm - 1.0
         else:
             raise ValueError(
                 f"Binning must be {_available_binnings}, got {self.binning}"
@@ -262,6 +262,7 @@ class RealSpaceDelta(Delta):
                     keys_removed=["wavelength", "log_wavelength"],
                 ),
                 other_matrices=self.return_editable_matrices_dict(),
+                binning=self.binning,
             )
             self.replace_arrays(other_arrays_filled)
             self.replace_matrices(other_matrices_filled)
@@ -339,7 +340,11 @@ def fill_masked_pixels(
     pixel_step,
     other_arrays=None,
     other_matrices=None,
+    binning="linear",
 ):
+    # The pixel step is in Angstrom (linear) or in log10(Angstrom) (log10).
+    if binning == "log10":
+        wavelength = np.log10(wavelength)
     wavelength_index = wavelength.copy()
     wavelength_index -= wavelength[0]
     wavelength_index /= pixel_step
@@ -354,6 +359,8 @@ def fill_masked_pixels(
     wavelength_filled = np.array(index_all, dtype=float)
     wavelength_filled *= pixel_step
     wavelength_filled += wavelength[0]
+    if binning == "log10":
+        wavelength_filled = 10**wavelength_filled
 
     other_arrays_filled = {}
     if other_arrays is not None:
@@ -475,6 +482,10 @@ def create_deltas_from_zero_padding(
     factor_padding=2.0,
     absorber_igm="LYA",
 ):
+    if delta_object.binning != "linear":
+        raise ValueError(
+            "Zero padding is only implemented for linear wavelength binning."
+        )
     if factor_padding is None:
         raise ValueError(
             "'factor padding' must be provided when zeropad_forest_flag is True."
