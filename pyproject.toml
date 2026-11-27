@@ -65,7 +65,7 @@ extend-exclude = ["lyaps/fft1d/old_functions.py"]
 select = ["E9", "F63", "F7", "F82"]
 
 [tool.bumpversion]
-current_version = "1.0.0"
+current_version = "1.1.0"
 commit = true
 tag = true
 tag_name = "v{new_version}"
