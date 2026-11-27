@@ -74,7 +74,7 @@ default_config = {
     "general": {
         "string search": "delta*.fits*",
         "absorber igm": "LYA",
-        "reading mode": "individual",
+        "reading mode": "file",
         "log": "run.log",
         "logging level console": "DEBUG",
         "logging level file": "DEBUG",
@@ -220,8 +220,10 @@ class Config:
         """
         for section in self.config:
             for key, value in self.config[section].items():
-                if value.startswith("$"):
+                if value is not None and value.startswith("$"):
                     pos = value.find("/")
+                    if pos == -1:
+                        pos = len(value)
                     if os.getenv(value[1:pos]) is None:
                         raise ConfigError(
                             f"In section [{section}], undefined "
@@ -262,7 +264,7 @@ class Config:
         if "/" in self.config["general"].getstr("log"):
             raise ConfigError(
                 "Variable 'log' in section [general] should not incude folders. "
-                f"Found: {self.log}"
+                f"Found: {self.config['general'].getstr('log')}"
             )
 
         logging_level_file = self.config["general"].getstr("logging level file").upper()
@@ -278,6 +280,11 @@ class Config:
         )
 
         log = logging.getLogger("log")
+        log.setLevel(logging.DEBUG)
+        # Remove the handlers of a previous Config, so lines are not repeated.
+        for handler in list(log.handlers):
+            log.removeHandler(handler)
+            handler.close()
         filehandler = logging.FileHandler(
             logging_file_name,
             mode="a",
@@ -292,7 +299,6 @@ class Config:
 
         consolehandler = logging.StreamHandler()
         consolehandler.setLevel(eval(f"logging.{logging_level_console}"))
-        consolehandler.setLevel(logging.INFO)
         consoleformatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )

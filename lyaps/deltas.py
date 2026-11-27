@@ -1,3 +1,5 @@
+import copy
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -33,7 +35,7 @@ class Delta:
         array_to_load = {}
         delta = None
         for _, data in enumerate(data_table.dtype.names):
-            if "delta" in data.lower():
+            if data.lower() in ["delta", "delta_blind"]:
                 delta = data_table[data]
             elif data.lower() == "lambda":
                 array_to_load["wavelength"] = data_table[data]
@@ -59,7 +61,7 @@ class Delta:
         array_to_load = {}
         delta = None
         for _, data in enumerate(data_table.dtype.names):
-            if "delta" in data.lower():
+            if data.lower() in ["delta", "delta_blind"]:
                 delta = data_table[data]
             elif data.lower() == "lambda":
                 array_to_load["wavelength"] = data_table[data]
@@ -75,7 +77,7 @@ class Delta:
 
     def return_editable_arrays_dict(
         self,
-        keys_removed=[],
+        keys_removed=(),
     ):
         editable_arrays = {}
         for key, array in self.__dict__.items():
@@ -86,7 +88,7 @@ class Delta:
 
     def return_editable_matrices_dict(
         self,
-        keys_removed=[],
+        keys_removed=(),
     ):
         editable_matrices = {}
         for key, array in self.__dict__.items():
@@ -150,10 +152,12 @@ class RealSpaceDelta(Delta):
                 other_matrices=other_matrices,
             )
         )
+        if padded_delta is None:
+            return None
 
         padded_delta = cls(
             delta=padded_delta,
-            metadata=delta.metadata,
+            metadata=copy.deepcopy(delta.metadata),
             wavelength=padded_wavelength,
         )
         padded_delta.replace_arrays(padded_other_arrays)
@@ -387,55 +391,41 @@ def zero_padding(
     tolerance_missalignement=10**-4,
 ):
     if factor_padding < 2:
-        raise ValueError("Factor padding must be greater than 2")
+        raise ValueError("Factor padding must be at least 2")
 
     mask_in = wavelength > wavelength_grid[0] - pixel_step / 2
     mask_in &= wavelength < wavelength_grid[-1] + pixel_step / 2
 
     if np.sum(mask_in) == 0:
-        return None, None, None
+        return None, None, None, None
 
-    mask_in_grid = wavelength_grid > wavelength[0] - pixel_step / 2
-    mask_in_grid &= wavelength_grid < wavelength[-1] + pixel_step / 2
+    # Place each pixel on the grid by its wavelength, so that masked pixels
+    # (absent from the arrays) become zeros, whether or not they were filled.
+    grid_index = np.rint((wavelength[mask_in] - wavelength_grid[0]) / pixel_step)
+    grid_index = np.clip(grid_index.astype(int), 0, len(wavelength_grid) - 1)
 
     if np.any(
-        np.abs(wavelength_grid[mask_in_grid] - wavelength[mask_in])
+        np.abs(wavelength_grid[grid_index] - wavelength[mask_in])
         > tolerance_missalignement
     ):
         raise ValueError(
             "Wavelength grid does not match the wavelength array within the tolerance."
         )
 
-    size_before = (wavelength_grid < wavelength[0] - pixel_step / 2).sum()
-    size_after = (wavelength_grid > wavelength[-1] + pixel_step / 2).sum()
-
     size_padding = int((factor_padding - 1) * len(wavelength_grid) / 2)
 
     padded_wavelength = np.concatenate(
         [
-            np.arange(
-                wavelength_grid[0] - (size_padding + 1) * pixel_step,
-                wavelength_grid[0] - pixel_step,
-                pixel_step,
-            ),
+            wavelength_grid[0] + pixel_step * np.arange(-size_padding, 0),
             wavelength_grid,
-            np.arange(
-                wavelength_grid[-1] + pixel_step,
-                wavelength_grid[-1] + (size_padding + 1) * pixel_step,
-                pixel_step,
-            ),
+            wavelength_grid[-1] + pixel_step * np.arange(1, size_padding + 1),
         ]
     )
 
     padded_array = np.zeros(size_padding)
 
-    delta_grid = np.concatenate(
-        [
-            np.zeros(size_before),
-            delta_array[mask_in],
-            np.zeros(size_after),
-        ]
-    )
+    delta_grid = np.zeros(len(wavelength_grid))
+    delta_grid[grid_index] = delta_array[mask_in]
     padded_delta = np.concatenate(
         [
             padded_array,
@@ -447,13 +437,8 @@ def zero_padding(
     if other_arrays is not None:
         for key, other_array in other_arrays.items():
 
-            other_array_grid = np.concatenate(
-                [
-                    np.zeros(size_before),
-                    other_array[mask_in],
-                    np.zeros(size_after),
-                ]
-            )
+            other_array_grid = np.zeros(len(wavelength_grid))
+            other_array_grid[grid_index] = other_array[mask_in]
             padded_other_arrays[key] = np.concatenate(
                 [
                     padded_array,
@@ -469,14 +454,8 @@ def zero_padding(
                 np.tile(padded_array, (other_matrix.shape[1], 1))
             )
 
-            other_matrix_grid = np.concatenate(
-                (
-                    np.zeros((size_before, other_matrix.shape[1])),
-                    other_matrix[mask_in, :],
-                    np.zeros((size_after, other_matrix.shape[1])),
-                ),
-                axis=0,
-            )
+            other_matrix_grid = np.zeros((len(wavelength_grid), other_matrix.shape[1]))
+            other_matrix_grid[grid_index, :] = other_matrix[mask_in, :]
             padded_other_matrices[key] = np.concatenate(
                 (
                     padded_matrix,
@@ -520,7 +499,7 @@ def create_deltas_from_zero_padding(
         ):
             continue
 
-        mask = (total_wavelength_grid > wavelength_chunk_min) & (
+        mask = (total_wavelength_grid >= wavelength_chunk_min) & (
             total_wavelength_grid < wavelength_chunk_max
         )
         if np.sum(mask) == 0:
@@ -531,7 +510,8 @@ def create_deltas_from_zero_padding(
             wavelength_grid,
             factor_padding,
         )
-        delta_padded_list.append(delta_padded)
+        if delta_padded is not None:
+            delta_padded_list.append(delta_padded)
 
     return delta_padded_list
 
@@ -573,7 +553,7 @@ def split_forest(
         else:
             wavelength_limit_max = wavelength[num_bins * (index + 1)]
 
-        mask = (wavelength > wavelength_limit_min) & (wavelength < wavelength_limit_max)
+        mask = (wavelength >= wavelength_limit_min) & (wavelength < wavelength_limit_max)
 
         wavelength_chunks.append(wavelength[mask])
         delta_array_chunks.append(delta_array[mask])
@@ -702,10 +682,13 @@ def create_deltas_from_split(
 
     splitted_delta_array = []
     for index in range(number_parts):
+        # A chunk needs at least two pixels to define its binning.
+        if wavelength_chunks[index].size < 2:
+            continue
 
         splitted_delta = RealSpaceDelta(
             delta=delta_array_chunks[index],
-            metadata=delta_object.metadata,
+            metadata=copy.deepcopy(delta_object.metadata),
             wavelength=wavelength_chunks[index],
         )
         splitted_delta.replace_arrays(other_arrays_chunks[index])
@@ -791,10 +774,13 @@ def treat_one_delta_object(
 
     if split_forest_flag:
         if split_forest_redshift_flag:
-            redshift_grid_split = np.arange(
-                redshift_min_split,
-                redshift_max_split,
-                redshift_step_split,
+            # Integer steps: max is kept when it falls on the grid (np.arange
+            # dropped it, or not, depending on float rounding).
+            number_bins = int(
+                np.floor((redshift_max_split - redshift_min_split) / redshift_step_split + 1e-6)
+            )
+            redshift_grid_split = redshift_min_split + redshift_step_split * np.arange(
+                number_bins + 1
             )
         else:
             redshift_grid_split = None
@@ -808,10 +794,11 @@ def treat_one_delta_object(
         )
 
     elif zeropad_forest_flag:
-        redshift_grid_pad = np.arange(
-            redshift_min_padding,
-            redshift_max_padding,
-            redshift_step_padding,
+        number_bins = int(
+            np.floor((redshift_max_padding - redshift_min_padding) / redshift_step_padding + 1e-6)
+        )
+        redshift_grid_pad = redshift_min_padding + redshift_step_padding * np.arange(
+            number_bins + 1
         )
 
         chunks_list = create_deltas_from_zero_padding(
@@ -834,7 +821,7 @@ def treat_one_delta_object(
             if delta.number_unmasked_pixels >= minimal_chunks_size
         ]
     if maximal_masked_size_pixels is not None:
-        if fill_masked_pixels_flag is None:
+        if not fill_masked_pixels_flag:
             raise ValueError(
                 "If 'maximal masked pixels' is set, 'fill masked pixels' must be True."
             )
@@ -842,10 +829,12 @@ def treat_one_delta_object(
             raise ValueError(
                 "If 'zeropad forest' is True, 'maximal masked pixels' must not be set."
             )
+        # Masked pixels per chunk: filled pixels have delta = 0.
         chunks_list = [
             delta
             for delta in chunks_list
-            if delta.number_masked_pixels <= maximal_masked_size_pixels
+            if delta.delta.size - delta.number_unmasked_pixels
+            <= maximal_masked_size_pixels
         ]
 
     for delta in chunks_list:
