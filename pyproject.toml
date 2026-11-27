@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lyaps"
+dynamic = ["version"]
+description = "Lyman-alpha forest power spectrum measurement (P1D, FFT estimator)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Corentin Ravoux", email = "corentin.ravoux.research@gmail.com"},
+    {name = "the DESI Lya forest software topical group"},
+]
+keywords = ["cosmology", "astrophysics", "lyman-alpha forest", "power spectrum", "DESI"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "fitsio>=1.2.4",
+    "astropy>=5.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["ruff"]
+
+[project.urls]
+Homepage = "https://github.com/igmhub/lyaps"
+Repository = "https://github.com/igmhub/lyaps"
+Issues = "https://github.com/igmhub/lyaps/issues"
+
+[tool.setuptools]
+# Command-line scripts installed on the PATH. bin/lyaps_fourier.py and
+# bin/lyapsfft1d_cross_exposure.py are not listed: they import names that do
+# not exist in lyaps (picca-era API) and fail at start-up.
+script-files = [
+    "bin/lyapsfft1d_averaging.py",
+    "bin/lyapsfft1d_groupmean.py",
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "lyaps._version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lyaps*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+# Legacy picca port, not imported anywhere; F821 (numpy never imported).
+extend-exclude = ["lyaps/fft1d/old_functions.py"]
+
+[tool.ruff.lint]
+# Bug-catching checks only (syntax errors, undefined names); same as CI.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.bumpversion]
+current_version = "1.0.0"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+message = "Bump version: {current_version} → {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "lyaps/_version.py"
