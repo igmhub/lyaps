@@ -35,7 +35,7 @@ class Delta:
         array_to_load = {}
         delta = None
         for _, data in enumerate(data_table.dtype.names):
-            if "delta" in data.lower():
+            if data.lower() in ["delta", "delta_blind"]:
                 delta = data_table[data]
             elif data.lower() == "lambda":
                 array_to_load["wavelength"] = data_table[data]
@@ -61,7 +61,7 @@ class Delta:
         array_to_load = {}
         delta = None
         for _, data in enumerate(data_table.dtype.names):
-            if "delta" in data.lower():
+            if data.lower() in ["delta", "delta_blind"]:
                 delta = data_table[data]
             elif data.lower() == "lambda":
                 array_to_load["wavelength"] = data_table[data]
@@ -77,7 +77,7 @@ class Delta:
 
     def return_editable_arrays_dict(
         self,
-        keys_removed=[],
+        keys_removed=(),
     ):
         editable_arrays = {}
         for key, array in self.__dict__.items():
@@ -88,7 +88,7 @@ class Delta:
 
     def return_editable_matrices_dict(
         self,
-        keys_removed=[],
+        keys_removed=(),
     ):
         editable_matrices = {}
         for key, array in self.__dict__.items():
@@ -391,7 +391,7 @@ def zero_padding(
     tolerance_missalignement=10**-4,
 ):
     if factor_padding < 2:
-        raise ValueError("Factor padding must be greater than 2")
+        raise ValueError("Factor padding must be at least 2")
 
     mask_in = wavelength > wavelength_grid[0] - pixel_step / 2
     mask_in &= wavelength < wavelength_grid[-1] + pixel_step / 2
@@ -499,7 +499,7 @@ def create_deltas_from_zero_padding(
         ):
             continue
 
-        mask = (total_wavelength_grid > wavelength_chunk_min) & (
+        mask = (total_wavelength_grid >= wavelength_chunk_min) & (
             total_wavelength_grid < wavelength_chunk_max
         )
         if np.sum(mask) == 0:
@@ -774,10 +774,13 @@ def treat_one_delta_object(
 
     if split_forest_flag:
         if split_forest_redshift_flag:
-            redshift_grid_split = np.arange(
-                redshift_min_split,
-                redshift_max_split,
-                redshift_step_split,
+            # Integer steps: max is kept when it falls on the grid (np.arange
+            # dropped it, or not, depending on float rounding).
+            number_bins = int(
+                np.floor((redshift_max_split - redshift_min_split) / redshift_step_split + 1e-6)
+            )
+            redshift_grid_split = redshift_min_split + redshift_step_split * np.arange(
+                number_bins + 1
             )
         else:
             redshift_grid_split = None
@@ -791,10 +794,11 @@ def treat_one_delta_object(
         )
 
     elif zeropad_forest_flag:
-        redshift_grid_pad = np.arange(
-            redshift_min_padding,
-            redshift_max_padding,
-            redshift_step_padding,
+        number_bins = int(
+            np.floor((redshift_max_padding - redshift_min_padding) / redshift_step_padding + 1e-6)
+        )
+        redshift_grid_pad = redshift_min_padding + redshift_step_padding * np.arange(
+            number_bins + 1
         )
 
         chunks_list = create_deltas_from_zero_padding(
