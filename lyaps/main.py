@@ -5,6 +5,8 @@ import multiprocessing as mp
 import os
 from functools import partial
 
+import numpy as np
+
 from lyaps.config import Config
 from lyaps.deltas import treat_one_delta_object
 from lyaps.fourier import fourier_transform_one_delta_object, group_fourier_chunks
@@ -45,9 +47,21 @@ def process_all_separated_steps(config_filename):
 
     log.info("Treating delta objects to create chunks and fourier transform them.")
 
+    noise_random_generator = fourier_config_dict["noise random generator"]
+    if noise_random_generator == "global" and number_process != 1:
+        raise ValueError("'noise random generator' global needs 'num processors' 1.")
+
     if number_process == 1:
         chunk_list = []
+        filename = None
         for delta_object in deltas:
+            if (
+                noise_random_generator == "global"
+                and delta_object.metadata["FILENAME"] != filename
+            ):
+                # As picca: the global generator starts from the seed in each file.
+                filename = delta_object.metadata["FILENAME"]
+                np.random.seed(fourier_config_dict["random seed"])
             fourier_chunk_list = function(delta_object)
             chunk_list.extend(fourier_chunk_list)
     else:

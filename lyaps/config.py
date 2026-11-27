@@ -63,6 +63,8 @@ mandatory_delta_options = [
 accepted_fourier_options = [
     "resolution correction method",
     "resolution correction option",
+    "noise random generator",
+    "random seed",
     "pixelization correction",
     "number noise realization",
     "white noise assumption",
@@ -96,6 +98,8 @@ default_config = {
     "fourier": {
         "resolution correction method": "matrix",
         "resolution correction option": "mean_kernel",
+        "noise random generator": "chunk",
+        "random seed": 4,
         "pixelization correction": False,
         "number noise realization": 200,
         "white noise assumption": True,

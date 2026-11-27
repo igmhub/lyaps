@@ -21,6 +21,13 @@ _available_resolution_correction_options = [
     "mean_kernel",
     "mean_window",
 ]
+# Random generator of the noise realisations:
+# - "chunk": independent generator per chunk, seeded with (seed, LOS_ID, CHUNK_ID).
+# - "global": numpy's global generator, seeded at each file in main (picca, debug).
+_available_noise_random_generators = [
+    "chunk",
+    "global",
+]
 
 _arguments_delta_to_report = [
     "mean_redshift",
@@ -57,7 +64,24 @@ class FourierSpaceDelta(Delta):
         resolution_correction_method="matrix",
         pixelization_correction=False,
         resolution_correction_option="mean_kernel",
+        noise_random_generator="chunk",
+        random_seed=None,
     ):
+
+        if noise_random_generator == "chunk":
+            if random_seed is None:
+                random_generator = np.random.default_rng()
+            else:
+                random_generator = np.random.default_rng(
+                    [random_seed, int(real_space_delta.metadata["LOS_ID"]), chunk_id or 0]
+                )
+        elif noise_random_generator == "global":
+            random_generator = np.random
+        else:
+            raise ValueError(
+                f"The available noise random generators are "
+                f"{_available_noise_random_generators}, {noise_random_generator} was given"
+            )
 
         delta_arguments = real_space_delta.__dict__.copy()
         delta_arguments.pop("wavelength", None)
@@ -87,6 +111,7 @@ class FourierSpaceDelta(Delta):
                 wavelength_coordinate,
                 exposures_diff,
                 real_space_delta.pixel_step,
+                random_generator=random_generator,
             )
 
         fourier_delta_noise, power_spectrum_noise, fourier_delta_diff = (
@@ -98,6 +123,7 @@ class FourierSpaceDelta(Delta):
                 exposures_diff=exposures_diff,
                 number_noise_realization=number_noise_realization,
                 white_noise_asumption=white_noise_asumption,
+                random_generator=random_generator,
             )
         )
 
@@ -270,9 +296,10 @@ def compute_noise_power_spectra(
     exposures_diff=None,
     number_noise_realization=500,
     white_noise_asumption=False,
+    random_generator=None,
 ):
-
-    random_generator = np.random.default_rng()
+    if random_generator is None:
+        random_generator = np.random.default_rng()
     num_pixels = len(wavelength)
     num_bins_fft = num_pixels // 2 + 1
 
@@ -319,9 +346,10 @@ def rebin_diff_noise_function(
     wavelength,
     exposures_diff,
     pixel_step,
+    random_generator=None,
 ):
-
-    random_generator = np.random.default_rng()
+    if random_generator is None:
+        random_generator = np.random.default_rng()
     rebin = 3
     if exposures_diff.size < rebin:
         userprint("Warning: exposures_diff.size too small for rebin")
@@ -485,6 +513,8 @@ def fourier_transform_one_delta_object(
     resolution_correction_method = fourrier_config_dict["resolution correction method"]
     pixelization_correction = fourrier_config_dict["pixelization correction"]
     resolution_correction_option = fourrier_config_dict["resolution correction option"]
+    noise_random_generator = fourrier_config_dict["noise random generator"]
+    random_seed = fourrier_config_dict["random seed"]
 
     return FourierSpaceDelta.from_real_space_delta(
         delta_object,
@@ -495,6 +525,8 @@ def fourier_transform_one_delta_object(
         resolution_correction_method=resolution_correction_method,
         pixelization_correction=pixelization_correction,
         resolution_correction_option=resolution_correction_option,
+        noise_random_generator=noise_random_generator,
+        random_seed=random_seed,
     )
 
 
