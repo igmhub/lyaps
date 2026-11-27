@@ -14,6 +14,13 @@ _available_resolution_correction = [
     "mean",
     "matrix",
 ]
+# Options of the matrix method:
+# - "mean_kernel": Fourier transform of the kernel averaged over the pixels (picca).
+# - "mean_window": average over the pixels of each kernel's squared window.
+_available_resolution_correction_options = [
+    "mean_kernel",
+    "mean_window",
+]
 
 _arguments_delta_to_report = [
     "mean_redshift",
@@ -49,6 +56,7 @@ class FourierSpaceDelta(Delta):
         rebin_diff_noise=False,
         resolution_correction_method="matrix",
         pixelization_correction=False,
+        resolution_correction_option="mean_kernel",
     ):
 
         delta_arguments = real_space_delta.__dict__.copy()
@@ -93,14 +101,24 @@ class FourierSpaceDelta(Delta):
             )
         )
 
+        if real_space_delta.binning == "linear":
+            # MEANRESO is in km/s and k in 1/Angstrom: use the resolution in
+            # pixels times the pixel size (as picca).
+            mean_resolution = real_space_delta.metadata.get("MEANRESO_PIX")
+            if mean_resolution is not None:
+                mean_resolution *= real_space_delta.pixel_step
+        else:
+            mean_resolution = real_space_delta.metadata.get("MEANRESO")
+
         resolution_correction = compute_resolution_correction(
             resolution_correction_method,
             wavenumber,
             real_space_delta.pixel_step,
             real_space_delta.binning,
             resolution_matrix=getattr(real_space_delta, "resomat", None),
-            mean_resolution=real_space_delta.metadata.get("MEANRESO"),
+            mean_resolution=mean_resolution,
             pixelization_correction=pixelization_correction,
+            correction_option=resolution_correction_option,
         )
 
         if "weight" in delta_arguments:
@@ -354,27 +372,42 @@ def compute_resolution_correction_matrix(
     pixel_step,
     binning,
     pixelization_correction=False,
+    correction_option="mean_kernel",
 ):
 
     resolution_matrix = np.atleast_2d(resolution_matrix)
+    number_pixels = resolution_matrix.shape[0]
+    # Filled pixels have no resolution (rows of zeros).
+    measured = np.any(resolution_matrix != 0, axis=1)
+    if not np.any(measured):
+        # No resolution information: flag the chunk with NaN.
+        return np.full(len(wavenumber), np.nan)
+
+    if correction_option == "mean_kernel":
+        # One kernel, averaged over the pixels.
+        kernels = np.mean(resolution_matrix[measured], axis=0, keepdims=True)
+    elif correction_option == "mean_window":
+        # One kernel per pixel, their squared windows averaged below.
+        kernels = resolution_matrix[measured]
+    else:
+        raise ValueError(
+            f"The available resolution correction options are "
+            f"{_available_resolution_correction_options}, {correction_option} was given"
+        )
 
     w2_arr = []
-    for resmat in resolution_matrix:
-        if np.any(resmat) != 0.0:
-            r = np.append(resmat, np.zeros(resolution_matrix.shape[0] - resmat.size))
-            _, fourier_resmat = transform(
-                r,
-                binning,
-                pixel_step,
-                return_wavenumber=False,
-            )
-            w2 = fourier_resmat.real**2 + fourier_resmat.imag**2
-            w2 /= w2[0]
-            w2_arr.append(w2)
+    for kernel in kernels:
+        r = np.append(kernel, np.zeros(number_pixels - kernel.size))
+        _, fourier_kernel = transform(
+            r,
+            binning,
+            pixel_step,
+            return_wavenumber=False,
+        )
+        w2 = fourier_kernel.real**2 + fourier_kernel.imag**2
+        w2 /= w2[0]
+        w2_arr.append(w2)
 
-    if len(w2_arr) == 0:
-        # No resolution information (all rows zero): flag the chunk with NaN.
-        return np.full(len(wavenumber), np.nan)
     w_res2 = np.mean(w2_arr, axis=0)
 
     resolution_correction = w_res2
@@ -401,6 +434,7 @@ def compute_resolution_correction(
     resolution_matrix=None,
     mean_resolution=None,
     pixelization_correction=False,
+    correction_option="mean_kernel",
 ):
     if correction_method == "mean":
         if mean_resolution is None:
@@ -429,6 +463,7 @@ def compute_resolution_correction(
             pixel_step,
             binning,
             pixelization_correction=pixelization_correction,
+            correction_option=correction_option,
         )
     else:
         raise ValueError(
@@ -449,6 +484,7 @@ def fourier_transform_one_delta_object(
     rebin_diff_noise = fourrier_config_dict["rebin diff noise"]
     resolution_correction_method = fourrier_config_dict["resolution correction method"]
     pixelization_correction = fourrier_config_dict["pixelization correction"]
+    resolution_correction_option = fourrier_config_dict["resolution correction option"]
 
     return FourierSpaceDelta.from_real_space_delta(
         delta_object,
@@ -458,6 +494,7 @@ def fourier_transform_one_delta_object(
         rebin_diff_noise=rebin_diff_noise,
         resolution_correction_method=resolution_correction_method,
         pixelization_correction=pixelization_correction,
+        resolution_correction_option=resolution_correction_option,
     )
 
 

@@ -293,6 +293,9 @@ class RealSpaceDelta(Delta):
 
     @property
     def number_unmasked_pixels(self):
+        # Filled delta: pixels present in the data (as picca), even with ivar = 0.
+        if self.number_masked_pixels is not None:
+            return self.delta.size - self.number_masked_pixels
         mask = np.isfinite(self.delta) & (self.delta != 0.0)
         return np.sum(mask)
 
@@ -728,6 +731,7 @@ def treat_one_delta_object(
     zeropad_forest_flag = delta_config_dict["zero padding"]
     split_forest_redshift_flag = delta_config_dict["split in redshift"]
     number_parts = delta_config_dict["number parts"]
+    fix_number_parts = delta_config_dict["fix number parts"]
     redshift_min_split = delta_config_dict["redshift min split"]
     redshift_max_split = delta_config_dict["redshift max split"]
     redshift_step_split = delta_config_dict["redshift step split"]
@@ -762,9 +766,6 @@ def treat_one_delta_object(
     if delta_object.wavelength.size == 0:
         return []
 
-    if fill_masked_pixels_flag:
-        delta_object.fill_masked_pixels()
-
     if split_forest_flag and zeropad_forest_flag:
         raise ValueError(
             "Cannot split and zeropad the forest at the same time. "
@@ -795,6 +796,15 @@ def treat_one_delta_object(
             )
         else:
             redshift_grid_split = None
+            if not fix_number_parts and minimal_chunks_size is not None:
+                # As picca: at most 'number parts', each with at least
+                # 'minimal chunks size' measured pixels.
+                number_parts = min(
+                    number_parts,
+                    delta_object.wavelength.size // minimal_chunks_size,
+                )
+                if number_parts == 0:
+                    return []
 
         chunks_list = create_deltas_from_split(
             delta_object,
@@ -825,6 +835,13 @@ def treat_one_delta_object(
 
     chunks_list = [delta for delta in chunks_list if delta.wavelength.size != 0]
 
+    for delta in chunks_list:
+        # As picca: mean redshift over the measured pixels, then filling.
+        # Zero-padded chunks are already on a regular grid.
+        delta.set_mean_redshift(absorber_igm=absorber_igm)
+        if fill_masked_pixels_flag and not zeropad_forest_flag:
+            delta.fill_masked_pixels()
+
     if minimal_chunks_size is not None:
         chunks_list = [
             delta
@@ -840,15 +857,12 @@ def treat_one_delta_object(
             raise ValueError(
                 "If 'zeropad forest' is True, 'maximal masked pixels' must not be set."
             )
-        # Masked pixels per chunk: filled pixels have delta = 0.
+        # Masked pixels per chunk: pixels added by filling.
         chunks_list = [
             delta
             for delta in chunks_list
             if delta.delta.size - delta.number_unmasked_pixels
             <= maximal_masked_size_pixels
         ]
-
-    for delta in chunks_list:
-        delta.set_mean_redshift(absorber_igm=absorber_igm)
 
     return chunks_list

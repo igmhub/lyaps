@@ -50,6 +50,7 @@ accepted_delta_options = [
     "maximal masked pixels",
     "minimum snr",
     "maximal mean resolution",
+    "fix number parts",
 ]
 
 mandatory_delta_options = [
@@ -61,6 +62,7 @@ mandatory_delta_options = [
 
 accepted_fourier_options = [
     "resolution correction method",
+    "resolution correction option",
     "pixelization correction",
     "number noise realization",
     "white noise assumption",
@@ -89,9 +91,11 @@ default_config = {
         "redshift min padding": 2.1,
         "redshift max padding": 3.2,
         "redshift step padding": 0.2,
+        "fix number parts": False,
     },
     "fourier": {
         "resolution correction method": "matrix",
+        "resolution correction option": "mean_kernel",
         "pixelization correction": False,
         "number noise realization": 200,
         "white noise assumption": True,
